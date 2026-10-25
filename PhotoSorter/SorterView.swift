@@ -6,6 +6,7 @@ struct SorterView: View {
     @State private var showManager = false
     @State private var showDeleteDialog = false
     @State private var drag: CGSize = .zero
+    @State private var openAlbum: AlbumItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,11 +31,22 @@ struct SorterView: View {
             .padding(.vertical, 8)
 
             actionRow
-            AlbumBar(showManager: $showManager)
+            AlbumBar(
+                enabled: model.current != nil,
+                onAdd: { showManager = true },
+                onTap: { model.file(into: $0.id) },
+                onOpen: { openAlbum = $0 }
+            )
         }
-        .overlay(alignment: .top) { toastView }
-        .sheet(isPresented: $showManager) {
+        .overlay(alignment: .top) { ToastOverlay() }
+        .sheet(isPresented: $showManager, onDismiss: { model.resortBar() }) {
             AlbumManagerView().environmentObject(model)
+        }
+        .sheet(item: $openAlbum, onDismiss: { model.resortBar() }) { album in
+            NavigationStack {
+                AlbumDetailView(albumID: album.id, showsCloseButton: true)
+            }
+            .environmentObject(model)
         }
         .confirmationDialog(
             "有 \(model.pendingDelete.count) 张照片等着删除",
@@ -208,69 +220,69 @@ struct SorterView: View {
             .buttonStyle(.bordered)
         }
     }
-
-    @ViewBuilder
-    private var toastView: some View {
-        if let toast = model.toast {
-            Text(toast)
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.thinMaterial, in: Capsule())
-                .padding(.top, 56)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .task(id: toast) {
-                    try? await Task.sleep(for: .seconds(1.2))
-                    withAnimation { model.toast = nil }
-                }
-        }
-    }
 }
 
 // MARK: - Album bar
 
+/// Two rows of album chips. Tap = onTap; long-press menu offers open / remove from bar.
 struct AlbumBar: View {
     @EnvironmentObject var model: SorterModel
-    @Binding var showManager: Bool
+    var excluding: String? = nil
+    var enabled: Bool = true
+    var onAdd: (() -> Void)? = nil
+    var onTap: (AlbumItem) -> Void
+    var onOpen: ((AlbumItem) -> Void)? = nil
 
     private let rows = [
         GridItem(.fixed(46), spacing: 8),
         GridItem(.fixed(46), spacing: 8),
     ]
 
+    private var shown: [AlbumItem] {
+        model.barAlbums.filter { $0.id != excluding }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Divider()
-            if model.barAlbums.isEmpty {
+            if shown.isEmpty {
                 Button {
-                    showManager = true
+                    onAdd?()
                 } label: {
                     Label("添加相册到这里", systemImage: "plus.circle.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity, minHeight: 100)
                 }
+                .disabled(onAdd == nil)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHGrid(rows: rows, spacing: 8) {
-                        Button {
-                            showManager = true
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.headline)
-                                .frame(width: 46)
-                                .frame(maxHeight: .infinity)
-                                .background(Color.secondary.opacity(0.15),
-                                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        if let onAdd {
+                            Button(action: onAdd) {
+                                Image(systemName: "plus")
+                                    .font(.headline)
+                                    .frame(width: 46)
+                                    .frame(maxHeight: .infinity)
+                                    .background(Color.secondary.opacity(0.15),
+                                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
                         }
 
-                        ForEach(model.barAlbums) { album in
+                        ForEach(shown) { album in
                             Button {
-                                model.file(into: album.id)
+                                onTap(album)
                             } label: {
                                 AlbumChip(album: album)
                             }
-                            .disabled(model.current == nil)
+                            .disabled(!enabled)
                             .contextMenu {
+                                if let onOpen {
+                                    Button {
+                                        onOpen(album)
+                                    } label: {
+                                        Label("打开相册", systemImage: "photo.on.rectangle")
+                                    }
+                                }
                                 Button(role: .destructive) {
                                     model.removeFromBar(album.id)
                                 } label: {

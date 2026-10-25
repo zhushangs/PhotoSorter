@@ -23,26 +23,39 @@ struct AlbumManagerView: View {
                 }
 
                 Section {
+                    Picker("相册栏顺序", selection: $model.barSortByCount) {
+                        Text("按照片数量").tag(true)
+                        Text("手动排序").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("相册栏顺序")
+                } footer: {
+                    Text(model.barSortByCount
+                         ? "照片多的相册排在前面。整理时位置不会跳，下次打开或关闭这个页面时重新排。"
+                         : "点右上角“编辑”拖动排序。")
+                }
+
+                Section {
                     ForEach(model.barAlbums) { album in
-                        row(album)
+                        albumLink(album)
                             .swipeActions {
                                 Button("移出") { model.removeFromBar(album.id) }
                                     .tint(.orange)
                                 Button("删除相册", role: .destructive) { albumToDelete = album }
                             }
                     }
-                    .onMove { model.moveBar(from: $0, to: $1) }
+                    .onMove(perform: model.barSortByCount ? nil : { model.moveBar(from: $0, to: $1) })
                 } header: {
-                    Text("相册栏（点右上角“编辑”排序）")
+                    Text("相册栏")
                 } footer: {
-                    Text("左滑：“移出”只是不在相册栏显示，“删除相册”会删掉相册本身（照片不会被删）。")
+                    Text("点相册可以整理里面的照片、改名。左滑：“移出”只是不在相册栏显示，“删除相册”会删掉相册本身（照片不会被删）。")
                 }
 
                 if !model.otherAlbums.isEmpty {
                     Section("其他相册（点 + 加到相册栏）") {
                         ForEach(model.otherAlbums) { album in
                             HStack {
-                                row(album)
                                 Button {
                                     model.addToBar(album.id)
                                 } label: {
@@ -50,6 +63,7 @@ struct AlbumManagerView: View {
                                         .font(.title3)
                                 }
                                 .buttonStyle(.borderless)
+                                albumLink(album)
                             }
                             .swipeActions {
                                 Button("删除相册", role: .destructive) { albumToDelete = album }
@@ -60,8 +74,11 @@ struct AlbumManagerView: View {
             }
             .navigationTitle("管理相册")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { model.resortBar() }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
+                if !model.barSortByCount {
+                    ToolbarItem(placement: .topBarLeading) { EditButton() }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
@@ -87,13 +104,17 @@ struct AlbumManagerView: View {
         }
     }
 
-    private func row(_ album: AlbumItem) -> some View {
-        HStack {
-            Text(album.title)
-            Spacer()
-            Text("\(album.count)")
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+    private func albumLink(_ album: AlbumItem) -> some View {
+        NavigationLink {
+            AlbumDetailView(albumID: album.id, showsCloseButton: false)
+        } label: {
+            HStack {
+                Text(album.title)
+                Spacer()
+                Text("\(album.count)")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
         }
     }
 

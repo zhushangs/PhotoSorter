@@ -59,6 +59,16 @@ final class SorterModel: ObservableObject {
             Task { await reload() }
         }
     }
+    /// true = album bar ordered by photo count (most first); false = the user's manual order.
+    @Published var barSortByCount: Bool {
+        didSet {
+            defaults.set(barSortByCount, forKey: Keys.barSortByCount)
+            resortBar()
+        }
+    }
+    /// The order the bar is shown in. Only recomputed at calm moments (reload, closing a sheet…)
+    /// so chips don't jump around while you're tapping them.
+    @Published private(set) var barOrder: [String] = []
 
     private var collections: [String: PHAssetCollection] = [:]
     private let defaults = UserDefaults.standard
@@ -68,14 +78,17 @@ final class SorterModel: ObservableObject {
         static let barInitialized = "barInitialized"
         static let pendingDelete = "pendingDelete"
         static let newestFirst = "newestFirst"
+        static let barSortByCount = "barSortByCount"
     }
 
     init() {
         let d = UserDefaults.standard
         authStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         newestFirst = d.object(forKey: Keys.newestFirst) as? Bool ?? true
+        barSortByCount = d.object(forKey: Keys.barSortByCount) as? Bool ?? true
         barIDs = d.stringArray(forKey: Keys.bar) ?? []
         pendingDelete = d.stringArray(forKey: Keys.pendingDelete) ?? []
+        barOrder = barIDs
     }
 
     // MARK: Derived state
@@ -84,10 +97,30 @@ final class SorterModel: ObservableObject {
     var remaining: Int { max(queue.count - index, 0) }
     var canUndo: Bool { !history.isEmpty }
     var barAlbums: [AlbumItem] {
-        barIDs.compactMap { id in albums.first { $0.id == id } }
+        barOrder.compactMap { id in albums.first { $0.id == id } }
     }
     var otherAlbums: [AlbumItem] {
         albums.filter { !barIDs.contains($0.id) }
+    }
+    var albumsByCount: [AlbumItem] {
+        albums.sorted { $0.count != $1.count ? $0.count > $1.count : $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    func album(_ id: String) -> AlbumItem? {
+        albums.first { $0.id == id }
+    }
+
+    func resortBar() {
+        guard barSortByCount else {
+            barOrder = barIDs
+            return
+        }
+        let byID = Dictionary(albums.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        barOrder = barIDs.sorted { a, b in
+            let ca = byID[a]?.count ?? 0, cb = byID[b]?.count ?? 0
+            if ca != cb { return ca > cb }
+            return (byID[a]?.title ?? "").localizedStandardCompare(byID[b]?.title ?? "") == .orderedAscending
+        }
     }
 
     // MARK: Permission
@@ -129,6 +162,7 @@ final class SorterModel: ObservableObject {
             barIDs = barIDs.filter { valid.contains($0) }
         }
         saveBar()
+        resortBar()
 
         // Forget pending deletes for photos that no longer exist.
         let stillThere = PHAsset.fetchAssets(withLocalIdentifiers: pendingDelete, options: nil)
@@ -289,8 +323,120 @@ final class SorterModel: ObservableObject {
             albums.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             barIDs.append(id)
             saveBar()
+            resortBar()
         } catch {
             toast = "创建相册失败：\(error.localizedDescription)"
+        }
+    }
+
+    func renameAlbum(_ id: String, to raw: String) async {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let coll = collections[id] else { return }
+        guard coll.canPerform(.rename) else {
+            toast = "这个相册不能改名"
+            return
+        }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCollectionChangeRequest(for: coll)?.title = name
+            }
+            if let fresh = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [id], options: nil).firstObject {
+                collections[id] = fresh
+            }
+            if let i = albums.firstIndex(where: { $0.id == id }) {
+                albums[i].title = name
+            }
+            albums.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            resortBar()
+            toast = "已改名为“\(name)”"
+        } catch {
+            toast = "改名失败：\(error.localizedDescription)"
+        }
+    }
+
+    // MARK: Photos inside an album
+
+    func fetchAssets(inAlbum id: String) -> [PHAsset] {
+        guard let coll = collections[id] else { return [] }
+        let opts = PHFetchOptions()
+        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        var list: [PHAsset] = []
+        PHAsset.fetchAssets(in: coll, options: opts).enumerateObjects { a, _, _ in list.append(a) }
+        return list
+    }
+
+    /// Moves photos from one album to another (removed from the source, added to the target).
+    func move(_ assets: [PHAsset], from sourceID: String, to targetID: String) async -> Bool {
+        guard !assets.isEmpty, sourceID != targetID,
+              let src = collections[sourceID], let dst = collections[targetID] else { return false }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCollectionChangeRequest(for: dst)?.addAssets(assets as NSArray)
+                PHAssetCollectionChangeRequest(for: src)?.removeAssets(assets as NSArray)
+            }
+            refreshCounts([sourceID, targetID])
+            Haptics.tap()
+            toast = assets.count == 1 ? "→ \(album(targetID)?.title ?? "")" : "\(assets.count) 张 → \(album(targetID)?.title ?? "")"
+            return true
+        } catch {
+            toast = "移动失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Takes photos out of an album. Ones that end up in no album go back to the unsorted queue.
+    func removeFromAlbum(_ assets: [PHAsset], albumID: String) async -> Bool {
+        guard !assets.isEmpty, let coll = collections[albumID] else { return false }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCollectionChangeRequest(for: coll)?.removeAssets(assets as NSArray)
+            }
+            refreshCounts([albumID])
+            let known = Set(queue.map(\.localIdentifier))
+            let backToUnsorted = assets.filter {
+                $0.mediaType == .image && !known.contains($0.localIdentifier) && isInNoAlbum($0)
+            }
+            queue.append(contentsOf: backToUnsorted)
+            Haptics.tap()
+            toast = "已移出相册"
+            return true
+        } catch {
+            toast = "移出失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Deletes right away (iOS asks for confirmation). Photos go to "Recently Deleted".
+    func deleteNow(_ assets: [PHAsset], albumID: String?) async -> Bool {
+        guard !assets.isEmpty else { return false }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(assets as NSArray)
+            }
+            if let albumID { refreshCounts([albumID]) }
+            toast = "已删除 \(assets.count) 张"
+            return true
+        } catch {
+            return false   // cancelled
+        }
+    }
+
+    private func isInNoAlbum(_ asset: PHAsset) -> Bool {
+        var found = false
+        PHAssetCollection.fetchAssetCollectionsContaining(asset, with: .album, options: nil)
+            .enumerateObjects { c, _, stop in
+                if c.assetCollectionSubtype == .albumRegular {
+                    found = true
+                    stop.pointee = true
+                }
+            }
+        return !found
+    }
+
+    private func refreshCounts(_ ids: [String]) {
+        for id in ids {
+            guard let coll = collections[id], let i = albums.firstIndex(where: { $0.id == id }) else { continue }
+            albums[i].count = PHAsset.fetchAssets(in: coll, options: nil).count
         }
     }
 
@@ -312,16 +458,21 @@ final class SorterModel: ObservableObject {
         guard !barIDs.contains(id) else { return }
         barIDs.append(id)
         saveBar()
+        resortBar()
     }
 
     func removeFromBar(_ id: String) {
         barIDs.removeAll { $0 == id }
         saveBar()
+        resortBar()
     }
 
+    /// Manual reordering; only used when the bar isn't sorted by count.
     func moveBar(from source: IndexSet, to destination: Int) {
+        guard !barSortByCount else { return }
         barIDs.move(fromOffsets: source, toOffset: destination)
         saveBar()
+        resortBar()
     }
 
     // MARK: Helpers
