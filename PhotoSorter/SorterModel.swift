@@ -24,6 +24,8 @@ struct AlbumItem: Identifiable, Hashable {
     let id: String          // PHAssetCollection.localIdentifier
     var title: String
     var count: Int
+    /// Newest photo in the album, shown as a little cover on the album bar.
+    var cover: PHAsset? = nil
 }
 
 private enum SortAction {
@@ -69,6 +71,11 @@ final class SorterModel: ObservableObject {
     /// The order the bar is shown in. Only recomputed at calm moments (reload, closing a sheet…)
     /// so chips don't jump around while you're tapping them.
     @Published private(set) var barOrder: [String] = []
+    /// Album writes still waiting to finish (shown as "保存中…").
+    @Published private(set) var savingCount = 0
+    /// A save that failed even after retrying. Shown until the user dismisses it.
+    @Published var saveError: String?
+    private var writeChain: Task<Void, Never>?
 
     private var collections: [String: PHAssetCollection] = [:]
     private let defaults = UserDefaults.standard
@@ -141,6 +148,8 @@ final class SorterModel: ObservableObject {
     func reload() async {
         guard authStatus == .authorized else { return }
         isLoading = true
+        // Let queued album writes land first, otherwise just-sorted photos would look unsorted.
+        await writeChain?.value
         let pending = Set(pendingDelete)
         let newest = newestFirst
         let snap = await Task.detached(priority: .userInitiated) {
@@ -185,7 +194,8 @@ final class SorterModel: ObservableObject {
             guard c.canPerform(.addContent) else { return }
             let assets = PHAsset.fetchAssets(in: c, options: nil)
             assets.enumerateObjects { a, _, _ in filed.insert(a.localIdentifier) }
-            albums.append(AlbumItem(id: c.localIdentifier, title: c.localizedTitle ?? "未命名", count: assets.count))
+            albums.append(AlbumItem(id: c.localIdentifier, title: c.localizedTitle ?? "未命名",
+                                    count: assets.count, cover: assets.lastObject))
             colls[c.localIdentifier] = c
         }
         albums.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -224,36 +234,70 @@ final class SorterModel: ObservableObject {
         guard let asset = current, let coll = collections[albumID] else { return }
         history.append(.filed(albumID: albumID, index: index))
         bumpCount(albumID, by: 1)
+        if let i = albums.firstIndex(where: { $0.id == albumID }) { albums[i].cover = asset }
         let title = albums.first(where: { $0.id == albumID })?.title ?? ""
         toast = "→ \(title)"
         Haptics.tap()
         advance()
 
-        Task {
-            do {
-                try await PHPhotoLibrary.shared().performChanges {
-                    PHAssetCollectionChangeRequest(for: coll)?.addAssets([asset] as NSArray)
-                }
-            } catch {
-                self.toast = "放入相册失败：\(error.localizedDescription)"
-            }
-        }
+        enqueueWrite({
+            PHAssetCollectionChangeRequest(for: coll)?.addAssets([asset] as NSArray)
+        }, onFailure: { [weak self] error in
+            guard let self else { return }
+            self.refreshCounts([albumID])
+            self.queue.append(asset)   // put it back so it gets sorted again
+            self.saveError = "有一张照片没能放进「\(title)」，已经放回待整理的最后面。\n（\(error.localizedDescription)）"
+        })
     }
 
-    func skip() {
-        guard current != nil else { return }
+    /// `expecting`: the photo the gesture started on. If the screen has already moved on
+    /// (e.g. an album was tapped mid-animation), do nothing instead of hitting the next photo.
+    func skip(expecting id: String? = nil) {
+        guard let asset = current, id == nil || id == asset.localIdentifier else { return }
         history.append(.skipped(index: index))
         advance()
     }
 
     /// Marks the current photo for deletion. Nothing is deleted until commitDeletes().
-    func markDelete() {
-        guard let asset = current else { return }
+    func markDelete(expecting id: String? = nil) {
+        guard let asset = current, id == nil || id == asset.localIdentifier else { return }
         history.append(.markedDelete(assetID: asset.localIdentifier, index: index))
         pendingDelete.append(asset.localIdentifier)
         savePending()
         Haptics.tap()
+        toast = "已标记删除 · 长按垃圾桶可全部删除"
         advance()
+    }
+
+    /// Deletes the current photo right away. iOS asks for confirmation itself; the photo goes to
+    /// "Recently Deleted" (recoverable for 30 days). Cancelling the iOS dialog changes nothing.
+    func deleteCurrent() async {
+        guard let asset = current else { return }
+        let id = asset.localIdentifier
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+            }
+        } catch {
+            return
+        }
+        if let i = queue.firstIndex(where: { $0.localIdentifier == id }) {
+            queue.remove(at: i)
+            // Steps recorded at or after this position no longer line up with the queue.
+            history.removeAll { Self.position(of: $0) >= i }
+            if index > i { index -= 1 }
+        }
+        Haptics.tap()
+        toast = "已删除，可在“最近删除”找回"
+        prefetch()
+    }
+
+    private static func position(of action: SortAction) -> Int {
+        switch action {
+        case let .filed(_, idx): return idx
+        case let .skipped(idx): return idx
+        case let .markedDelete(_, idx): return idx
+        }
     }
 
     func undo() {
@@ -264,11 +308,14 @@ final class SorterModel: ObservableObject {
             bumpCount(albumID, by: -1)
             if let coll = collections[albumID], idx < queue.count {
                 let asset = queue[idx]
-                Task {
-                    try? await PHPhotoLibrary.shared().performChanges {
-                        PHAssetCollectionChangeRequest(for: coll)?.removeAssets([asset] as NSArray)
-                    }
-                }
+                // Queued after the original "add", so it can never run before it.
+                enqueueWrite({
+                    PHAssetCollectionChangeRequest(for: coll)?.removeAssets([asset] as NSArray)
+                }, onSuccess: { [weak self] in
+                    self?.refreshCounts([albumID])
+                }, onFailure: { [weak self] _ in
+                    self?.saveError = "撤销时没能把照片从相册里拿出来，可以到相册里手动移出。"
+                })
             }
         case let .skipped(idx):
             index = idx
@@ -436,7 +483,9 @@ final class SorterModel: ObservableObject {
     private func refreshCounts(_ ids: [String]) {
         for id in ids {
             guard let coll = collections[id], let i = albums.firstIndex(where: { $0.id == id }) else { continue }
-            albums[i].count = PHAsset.fetchAssets(in: coll, options: nil).count
+            let result = PHAsset.fetchAssets(in: coll, options: nil)
+            albums[i].count = result.count
+            albums[i].cover = result.lastObject
         }
     }
 
@@ -476,6 +525,33 @@ final class SorterModel: ObservableObject {
     }
 
     // MARK: Helpers
+
+    /// Runs photo-library writes strictly one at a time, in the order they were requested,
+    /// retrying up to 3 times. Fast tapping no longer fires overlapping requests.
+    private func enqueueWrite(_ change: @escaping () -> Void,
+                              onSuccess: (() -> Void)? = nil,
+                              onFailure: @escaping (Error) -> Void) {
+        let previous = writeChain
+        savingCount += 1
+        writeChain = Task {
+            await previous?.value
+            var lastError: Error?
+            for attempt in 1...3 {
+                do {
+                    try await PHPhotoLibrary.shared().performChanges(change)
+                    lastError = nil
+                    break
+                } catch {
+                    lastError = error
+                    if attempt < 3 {
+                        try? await Task.sleep(for: .milliseconds(400 * attempt))
+                    }
+                }
+            }
+            if let lastError { onFailure(lastError) } else { onSuccess?() }
+            savingCount -= 1
+        }
+    }
 
     private func bumpCount(_ albumID: String, by delta: Int) {
         if let i = albums.firstIndex(where: { $0.id == albumID }) {
