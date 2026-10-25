@@ -144,7 +144,7 @@ struct SorterView: View {
                 model.markDelete()
             }
             .disabled(model.isLoading)
-            .accessibilityLabel("删除这张照片，长按处理全部待删除
+            .accessibilityLabel("删除这张照片，长按处理全部待删除")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
