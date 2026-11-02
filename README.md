@@ -1,143 +1,150 @@
 # 理片 PhotoSorter
 
-[中文](#中文) · [English](#english)
-
----
-
-## 中文
-
-无广告的 Slidebox 替代品：一张张查看所有还没放进相册的照片，点底部相册名就归档。
-
-### 功能
-
-- **只显示未分类照片**：不在任何相册里的照片才会出现。
-- **相册栏**：自动读取 iPhone 里已有的相册，放在底部。每个相册显示一张封面、名字和照片数量，点一下就把当前照片放进去。
-  - 默认按照片数量排序，常用的在前面；整理时位置不会跳动。也可以在「管理」里改成手动排序。
-  - 长按相册：打开相册 / 从相册栏移除。
-- **照片两侧的箭头**：‹ 返回上一步（撤销），› 略过这张。也可以左滑略过、右滑返回。
-- **删除**：
-  - 点右上角垃圾桶（或上滑照片）：标记这张为待删除，直接跳到下一张，不弹窗。
-  - 长按垃圾桶：「全部删除」（系统只确认一次，照片进入「最近删除」，30 天内可找回）或「全部恢复」。
-- **管理相册**：新建、改名、删除相册（照片不会被删）、加入或移出相册栏。
-- **整理相册里的照片**：打开相册看网格，可以逐张或多选，把照片移到别的相册、移出相册或删除。
-- **可靠保存**：保存一张一张排队进行，失败自动重试；顶部显示「保存中…」，真失败会提示并把照片放回待整理。
-- 所有改动直接写进系统「照片」App，不上传任何地方。
-
-### 只有 Windows 电脑也能装（GitHub 云端编译 + iloader）
-
-#### 第一步：编译出 .ipa
-
-仓库里的 `.github/workflows/build.yml` 会用 GitHub 免费的 Mac 服务器自动编译。
-
-1. 用 **GitHub Desktop** 打开这个文件夹，Commit 后点 **Push origin**。
-2. 打开仓库网页 → **Actions**，等最新一次「Build IPA」变成绿色 ✓（约 5 分钟）。
-3. 点进去，在页面最下面 **Artifacts** 下载 `PhotoSorter-ipa`，解压得到 `PhotoSorter.ipa`。
-
-#### 第二步：用 iloader 装到 iPhone
-
-1. 安装 **iTunes**（必须是 Apple 官网版，不要用 Microsoft Store 版）：<https://www.apple.com/itunes/download/win64>。iloader 需要它来连接手机。
-2. 从官方渠道下载 **iloader**：<https://github.com/nab138/iloader> 的 Releases 页面，或 iloader.app。
-3. iPhone 用数据线连电脑，**解锁手机**，弹出「信任此电脑」时点信任。
-4. 打开 iloader，用 Apple ID 登录（建议用小号），导入 `PhotoSorter.ipa` 安装。安装过程中保持手机解锁、亮屏。
-5. iPhone 上：
-   - **设置 → 隐私与安全性 → 开发者模式** 打开（第一次装完才会出现这个选项，开启后会重启）。
-   - **设置 → 通用 → VPN 与设备管理** → 点你的 Apple ID → **信任**。
-6. 打开「理片」，照片权限选 **「允许完全访问」**。
-
-#### 更新到新版本
-
-改完代码后重复上面的流程：Push → 等 Actions 编译 → 下载新的 ipa → 用 iloader 再装一次。新版会直接覆盖旧版，整理好的相册不受影响。
-
-> 免费 Apple ID 签名的 app **7 天后会打不开**，用 iloader 把同一个 ipa 再装一次就好。
-> 请一直用同一个 Apple ID、同一个工具安装，否则手机上可能出现两个「理片」。
-
-#### 常见问题
-
-| 问题 | 解决 |
-|---|---|
-| iloader 报 `bad device` | 解锁手机并保持亮屏；拔插数据线、换电脑机身 USB 口；重启 iloader |
-| 手机上提示「不受信任的开发者」 | 设置 → 通用 → VPN 与设备管理 → 信任 |
-| 找不到「开发者模式」 | 先用 iloader 装一次 app，选项才会出现 |
-| 打开 app 看不到相册 | 照片权限要选「完全访问」，到 设置 → 理片 → 照片 修改 |
-| Actions 是红色 ✗ | 点进去复制报错信息修代码 |
-
-### 文件结构
-
-```
-PhotoSorter/
-├── project.yml                 XcodeGen 配置（iOS 17+）
-├── .github/workflows/build.yml GitHub Actions 云端编译
-└── PhotoSorter/
-    ├── PhotoSorterApp.swift     入口
-    ├── SorterModel.swift        读相册、找未分类照片、归档 / 略过 / 删除 / 撤销、相册管理
-    ├── SorterView.swift         主界面、两侧箭头、底部相册栏
-    ├── AlbumManagerView.swift   新建 / 排序 / 删除相册
-    ├── AlbumDetailView.swift    相册详情、逐张整理、多选操作
-    ├── AssetImageView.swift     大图与缩略图加载（支持 iCloud 照片）
-    ├── RootView.swift           权限处理
-    └── Assets.xcassets          App 图标
-```
-
----
-
-## English
+[简体中文](README.zh-CN.md) · **English**
 
 An ad-free alternative to Slidebox: go through every photo that isn't in an album yet, one at a time, and tap an album name at the bottom to file it.
 
-### Features
+- [Features](#features)
+- [Step 1: Build the ipa](#step-1-build-the-ipa)
+- [Step 2: Install on your iPhone](#step-2-install-on-your-iphone)
+  - [Option A: Install directly with iloader (simplest, needs a PC every 7 days)](#option-a-install-directly-with-iloader)
+  - [Option B: SideStore + auto-refresh (recommended, no PC afterwards)](#option-b-sidestore--auto-refresh)
+- [Troubleshooting](#troubleshooting)
+- [Project layout](#project-layout)
+
+---
+
+## Features
 
 - **Unsorted photos only**: a photo shows up only if it isn't in any album.
 - **Album bar**: your existing iPhone albums are loaded automatically. Each card shows a cover, the name and the photo count; tap it to put the current photo in that album.
-  - Sorted by photo count by default, so the albums you use most come first; positions don't jump around while you sort. You can switch to manual order under "管理" (Manage).
+  - Sorted by photo count by default, so your most-used albums come first; positions don't jump while you sort. Switch to manual order under "管理" (Manage).
   - Long-press an album: open it / remove it from the bar.
-- **Arrows beside the photo**: ‹ goes back one step (undo), › skips this photo. You can also swipe left to skip and right to go back.
+- **Arrows beside the photo**: ‹ goes back one step (undo), › skips this photo. Swipe left to skip, right to go back.
 - **Deleting**:
-  - Tap the trash can (or swipe the photo up): marks it for deletion and moves on, with no prompt.
-  - Long-press the trash can: "全部删除" (Delete all — iOS asks once, photos go to Recently Deleted and can be recovered for 30 days) or "全部恢复" (Restore all).
+  - Tap the trash can (or swipe the photo up): marks it for deletion and moves on, no prompt.
+  - Long-press the trash can: "全部删除" (Delete all — iOS asks once; photos go to Recently Deleted for 30 days) or "全部恢复" (Restore all).
 - **Manage albums**: create, rename, delete albums (photos are kept), add to or remove from the bar.
-- **Organize inside an album**: open an album as a grid; go one by one or multi-select to move photos to another album, take them out, or delete them.
-- **Reliable saving**: saves are queued one at a time and retried on failure; "保存中…" (Saving…) appears at the top, and a real failure is reported and the photo goes back into the queue.
-- Every change is written straight to the system Photos library. Nothing is uploaded anywhere.
+- **Organize inside an album**: grid view; go one by one or multi-select to move, take out of the album, or delete.
+- **Reliable saving**: saves are queued and retried; "保存中…" (Saving…) shows at the top, and a real failure is reported and the photo goes back into the queue.
+- Every change is written straight to the system Photos library; nothing is uploaded. The app stores no data itself, so if it expires or is deleted your albums stay intact.
 
-### Installing with only a Windows PC (GitHub cloud build + iloader)
+---
 
-#### Step 1: Build the .ipa
+## Step 1: Build the ipa
 
-`.github/workflows/build.yml` builds the app on GitHub's free macOS runners.
+Works with only a Windows PC: `.github/workflows/build.yml` builds the app on GitHub's free macOS runners.
 
 1. Open this folder in **GitHub Desktop**, commit, and click **Push origin**.
-2. Open the repo on github.com → **Actions** and wait for the latest "Build IPA" run to turn green ✓ (about 5 minutes).
+2. On github.com open the repo → **Actions** and wait for the latest "Build IPA" run to turn green ✓ (about 5 minutes).
 3. Open the run, download `PhotoSorter-ipa` under **Artifacts** at the bottom, and unzip it to get `PhotoSorter.ipa`.
 
-#### Step 2: Install it on your iPhone with iloader
+> ⚠️ Actions keeps files for **90 days** by default. Save a copy of `PhotoSorter.ipa` on your PC (outside this repo folder).
+> Lost it? Actions → "Build IPA" on the left → **Run workflow** on the right, and a fresh build is ready in a few minutes.
 
-1. Install **iTunes** from Apple's website (not the Microsoft Store version): <https://www.apple.com/itunes/download/win64>. iloader needs it to talk to the phone.
+---
+
+## Step 2: Install on your iPhone
+
+Both options use **iloader** and a free Apple ID.
+
+**Prerequisites (both options)**
+
+1. Install **iTunes** from Apple's website, not the Microsoft Store: <https://www.apple.com/itunes/download/win64>
+   **iCloud for Windows is not needed.**
 2. Download **iloader** from its official sources only: the Releases page of <https://github.com/nab138/iloader>, or iloader.app.
-3. Connect the iPhone by USB, **unlock it**, and tap "Trust This Computer" when asked.
-4. Open iloader, sign in with an Apple ID (a secondary one is recommended), import `PhotoSorter.ipa` and install. Keep the phone unlocked with the screen on during the install.
-5. On the iPhone:
-   - **Settings → Privacy & Security → Developer Mode**: turn it on (the option only appears after the first sideloaded install; the phone restarts).
+3. Set a passcode on the iPhone, connect it by USB, **unlock it**, and tap "Trust This Computer".
+
+### Option A: Install directly with iloader
+
+Good if you only use the app occasionally and don't mind plugging in.
+
+1. Open iloader, sign in with an Apple ID (a secondary one is recommended), choose **Import IPA**, and pick `PhotoSorter.ipa`. Keep the phone unlocked with the screen on.
+2. On the iPhone:
+   - **Settings → Privacy & Security → Developer Mode**: turn it on (the option appears only after the first sideloaded install; the phone restarts).
    - **Settings → General → VPN & Device Management** → tap your Apple ID → **Trust**.
-6. Open 理片 and choose **"Allow Full Access"** for photos.
+3. Open 理片 and choose **"Allow Full Access"** for photos.
 
-#### Updating
+> Apps signed with a free Apple ID **stop opening after 7 days** ("no longer available"). When you want to use it again, plug in and install the same ipa with iloader; it replaces the old copy and your albums are untouched.
 
-After a code change, repeat the flow: Push → wait for Actions → download the new ipa → install it again with iloader. The new version replaces the old one; your albums are untouched.
+### Option B: SideStore + auto-refresh
 
-> Apps signed with a free Apple ID **stop opening after 7 days** — just install the same ipa again with iloader.
-> Always use the same Apple ID and the same tool, or you may end up with two copies of the app.
+Set it up once and the phone re-signs itself daily, so the app opens whenever you need it — even months later — without a PC.
 
-#### Troubleshooting
+#### 1. Install SideStore with iloader
+
+- Open iloader, sign in, select your iPhone, and install **SideStore (Stable)**.
+  - You don't need the LiveContainer versions (they're for people running many apps or needing JIT).
+  - If Stable won't open or keeps failing, install **SideStore (Nightly)** instead.
+- On the iPhone, as in Option A step 2: turn on **Developer Mode** and **Trust** your Apple ID in VPN & Device Management.
+
+#### 2. Install LocalDevVPN and allow SideStore notifications
+
+- Install **LocalDevVPN** from the App Store, open it, tap **Connect**, and allow the VPN configuration. It only simulates a computer connection on the phone; SideStore needs it on whenever it installs or refreshes.
+- **Settings → Notifications → SideStore → Allow Notifications**: turn it on. On iOS 27, refreshing fails with "Source is not authorized" without it. You can turn off banners and sounds and keep only "Allow Notifications".
+
+#### 3. Sign in to SideStore
+
+- With LocalDevVPN connected, open SideStore and sign in with **the same Apple ID you used in iloader**.
+- If asked to **revoke a certificate**, accept — that's expected.
+- For sign-in errors see [Troubleshooting](#troubleshooting).
+
+#### 4. Install 理片 through SideStore
+
+- In Safari on the iPhone, sign in to GitHub → the repo → Actions → latest green run → download `PhotoSorter-ipa`, then tap the zip in the Files app to unzip it.
+- Open SideStore → **My Apps** → **"+"** at the top left → pick `PhotoSorter.ipa`.
+- **It must be installed by SideStore** — SideStore can only refresh apps it installed. You can delete an older copy installed by iloader first (your albums are untouched).
+
+#### 5. Create the "理片续签" (refresh) shortcut
+
+Open the Shortcuts app → "+" to create a new shortcut, and add these actions from the search bar at the bottom:
+
+| # | Action | Setting |
+|---|---|---|
+| 1 | **Set VPN** | LocalDevVPN → **Connect** |
+| 2 | **Wait** | 30 seconds |
+| 3 | **Refresh All Apps** (search "SideStore") | Tap › to expand; turn off "Show When Run" if present |
+| 4 | **Wait** | 60 seconds |
+| 5 | **Set VPN** | LocalDevVPN → **Disconnect** |
+
+Name it **理片续签** (or anything you like), tap ▶️ to run it once, then check that SideStore shows **7 DAYS** again.
+
+> If "Refresh All Apps" shows a confirmation that blocks the last two steps: delete steps 4 and 5, and create a separate automation 5 minutes later containing only "Set VPN → Disconnect". The refresh is already done before that prompt appears.
+
+#### 6. Run it automatically every day
+
+Shortcuts → **Automation** → "+" → **Time of Day**:
+
+- Time: when the phone is usually charging on Wi-Fi, e.g. 11 PM or 3 AM.
+- Repeat: **Daily** (a few failures don't matter; one success within 7 days is enough).
+- Choose **Run Immediately** and turn **Notify When Run** off.
+- Next → on the blank page search **Run Shortcut** → choose **理片续签** → Done.
+
+Test it: set the time to two or three minutes from now, let it run on its own, check SideStore shows **7 DAYS**, then set the time back.
+
+> **When you'll still need the PC**: after a major iOS update the pairing file may stop working, or if the automation hasn't succeeded for over 7 days (e.g. the phone was off). Reinstall SideStore with iloader once and you're set again.
+
+---
+
+## Troubleshooting
 
 | Problem | Fix |
 |---|---|
+| 理片 says "no longer available" | The 7-day free signature expired. Option A: reinstall with iloader. Option B: check the automation, open SideStore and tap Refresh All |
 | iloader says `bad device` | Unlock the phone and keep the screen on; replug the cable, use a USB port on the PC itself; restart iloader |
-| "Untrusted Developer" on the phone | Settings → General → VPN & Device Management → Trust |
-| No "Developer Mode" option | Install the app once with iloader first; the option appears afterwards |
-| No albums in the app | Photo access must be "Full Access": Settings → 理片 → Photos |
-| Actions run is red ✗ | Open it and copy the error to fix the code |
+| "Untrusted Developer" | Settings → General → VPN & Device Management → Trust |
+| No "Developer Mode" option | Install a sideloaded app once first; the option appears afterwards |
+| SideStore sign-in error `-80045` / `-80046` | Settings → User Customizations: turn **On-Device Anisette** off, tap **Reset adi.pb**, force-quit and reopen SideStore, and with LocalDevVPN connected sign in **once**. Don't retry repeatedly |
+| `Anisette server returned HTTP status -1` / `-45061` | Try turning On-Device Anisette on and sign in again; or Diagnostics → Developer Options and clear the database; or install the Nightly build |
+| Refresh fails with `Source is not authorized` | Settings → Notifications → SideStore → Allow Notifications |
+| Don't edit **Anisette Client Configuration** | It holds the identity used to sign in; wrong values break sign-in |
+| No albums in 理片 | Photo access must be "Full Access": Settings → 理片 → Photos |
+| Actions run is red ✗ | The Annotations section on the run's summary page shows the failing code lines |
+| Two copies of 理片 on the phone | You switched Apple ID or install tool. Delete the old one; albums are untouched |
 
-### Project layout
+---
+
+## Project layout
 
 ```
 PhotoSorter/
