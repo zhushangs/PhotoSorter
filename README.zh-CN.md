@@ -1,6 +1,6 @@
 # 理片 PhotoSorter
 
-**简体中文** · [English](README.md)
+[English](README.md) · **简体中文**
 
 无广告的 Slidebox 替代品：一张张查看所有还没放进相册的照片，点底部相册名就归档。
 

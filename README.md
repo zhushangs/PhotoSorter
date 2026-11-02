@@ -1,6 +1,6 @@
 # 理片 PhotoSorter
 
-[简体中文](README.zh-CN.md) · **English**
+**English** · [简体中文](README.zh-CN.md)
 
 An ad-free alternative to Slidebox: go through every photo that isn't in an album yet, one at a time, and tap an album name at the bottom to file it.
 
